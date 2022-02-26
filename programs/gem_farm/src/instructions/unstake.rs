@@ -18,8 +18,10 @@ pub struct Unstake<'info> {
     // farm
     #[account(mut, has_one = farm_authority, has_one = farm_treasury, has_one = bank)]
     pub farm: Box<Account<'info, Farm>>,
+    /// CHECK:
     #[account(seeds = [farm.key().as_ref()], bump = bump_auth)]
     pub farm_authority: AccountInfo<'info>,
+    /// CHECK:
     #[account(mut, seeds = [b"treasury".as_ref(), farm.key().as_ref()], bump = bump_treasury)]
     pub farm_treasury: AccountInfo<'info>,
 
@@ -58,7 +60,7 @@ impl<'info> Unstake<'info> {
         )
     }
 
-    fn pay_treasury(&self, lamports: u64) -> ProgramResult {
+    fn pay_treasury(&self, lamports: u64) -> Result<()> {
         invoke(
             &system_instruction::transfer(self.identity.key, self.farm_treasury.key, lamports),
             &[
@@ -67,10 +69,11 @@ impl<'info> Unstake<'info> {
                 self.system_program.to_account_info(),
             ],
         )
+        .map_err(Into::into)
     }
 }
 
-pub fn handler(ctx: Context<Unstake>) -> ProgramResult {
+pub fn handler(ctx: Context<Unstake>, skip_rewards: bool) -> Result<()> {
     // collect any unstaking fee
     let farm = &ctx.accounts.farm;
 
@@ -83,7 +86,11 @@ pub fn handler(ctx: Context<Unstake>) -> ProgramResult {
     let farmer = &mut ctx.accounts.farmer;
     let now_ts = now_ts()?;
 
-    farm.update_rewards(now_ts, Some(farmer), false)?;
+    // skipping rewards is an EMERGENCY measure in case farmer's rewards are overflowing
+    // at least this lets them get their assets out
+    if !skip_rewards {
+        farm.update_rewards(now_ts, Some(farmer), false)?;
+    }
 
     // end staking (will cycle through state on repeated calls)
     farm.end_staking(now_ts, farmer)?;
